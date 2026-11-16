@@ -1,0 +1,33 @@
+{
+  "name": "detect-shapes-pdf",
+  "version": "1.0.0",
+  "description": "Detect black bar shapes (straight, L, U, Z, closed link, ...) directly from a vector PDF — TypeScript port of the original Python script.",
+  "type": "module",
+  "main": "dist/main.js",
+  "bin": {
+    "detect-shapes-pdf": "dist/main.js"
+  },
+  "scripts": {
+    "rebar": "bun src/rebar_finder.ts",
+    "shapes": "bun src/detect_shapes_pdf.ts",
+    "lengths": "bun src/shape_lengths.ts",
+    "dims": "bun src/dimension_bars.ts",
+    "build": "tsc",
+    "start": "tsx src/main.ts",
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@muhammara/native": "^7.0.0",
+    "mupdf": "^1.28.1",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

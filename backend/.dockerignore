@@ -1,0 +1,10 @@
+node_modules
+dist
+jobs
+test
+coverage
+.env*
+.git
+Dockerfile
+.dockerignore
+*.md
