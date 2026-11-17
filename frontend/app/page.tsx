@@ -17,8 +17,6 @@ interface Shape {
 
 interface PageInfo {
   page: number;
-  mm_per_pt: number;
-  scale_from: string;
   bars_from: string;
   overlayUrl: string;
 }
@@ -102,7 +100,6 @@ export default function Home() {
 
   const current = view ? view.items[view.i] : null;
 
-  const totalM = shown.reduce((a, s) => a + s.length_mm, 0) / 1000;
 
   return (
     <main>
@@ -126,13 +123,6 @@ export default function Home() {
         <>
           <section className="panel stats">
             <div><b>{result.shapes.length}</b><span>shapes</span></div>
-            {result.pages.map((p) => (
-              <div key={p.page}>
-                <b>{p.mm_per_pt} mm/pt</b>
-                <span>page {p.page} scale, {p.scale_from}</span>
-              </div>
-            ))}
-            <div><b>{totalM.toFixed(1)} m</b><span>total length shown</span></div>
             <div>
               <a href={`${API}${result.xlsxUrl}`} download>Download Excel (with images)</a>
               {result.pages.map((p) => (
