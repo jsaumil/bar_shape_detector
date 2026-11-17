@@ -10,7 +10,7 @@ interface Shape {
   tag: string;
   shape: string;
   type: string;
-  true_length_mm: number;
+  length_mm: number;
   segments_mm: number[];
   imageUrl: string | null;
 }
@@ -72,14 +72,14 @@ export default function Home() {
       (result?.shapes ?? []).filter(
         (s) =>
           (type === "all" || s.type === type) &&
-          `${s.tag} ${s.shape} ${s.true_length_mm}`.toLowerCase().includes(search.toLowerCase()),
+          `${s.tag} ${s.shape} ${s.length_mm}`.toLowerCase().includes(search.toLowerCase()),
       ),
     [result, type, search],
   );
   const shapeItems: ViewItem[] = shown.map((s) => ({
     src: `${API}${s.imageUrl}`,
     title: `${s.tag} · ${s.shape}`,
-    lines: [`Length: ${s.true_length_mm} mm`, `Legs: ${s.segments_mm.join(" + ")} mm`, `Type: ${s.type} · page ${s.page}`],
+    lines: [`Length: ${s.length_mm} mm`, `Legs: ${s.segments_mm.join(" + ")} mm`, `Type: ${s.type} · page ${s.page}`],
   }));
 
   const step = (d: number) =>
@@ -102,7 +102,7 @@ export default function Home() {
 
   const current = view ? view.items[view.i] : null;
 
-  const totalM = shown.reduce((a, s) => a + s.true_length_mm, 0) / 1000;
+  const totalM = shown.reduce((a, s) => a + s.length_mm, 0) / 1000;
 
   return (
     <main>
@@ -172,7 +172,7 @@ export default function Home() {
                   </button>
                 )}
                 <div className="info">
-                  <div className="len">{s.true_length_mm} mm</div>
+                  <div className="len">{s.length_mm} mm</div>
                   <div>{s.tag} · {s.shape}</div>
                   <div className="meta">Legs: {s.segments_mm.join(" + ")} mm · page {s.page}</div>
                 </div>

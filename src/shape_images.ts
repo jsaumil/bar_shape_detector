@@ -25,7 +25,7 @@ export function shapeSvg(s: Shape): string {
   const w = Math.max(...xs) - minX
   const h = Math.max(...ys) - minY
   const k = Math.min(SIZE / Math.max(w, 1e-9), MAX_H / Math.max(h, 1e-9))
-  const title = `${s.tag ?? ""}  ${s.name}  L = ${s.true_length_mm} mm`
+  const title = `${s.tag ?? ""}  ${s.name}  L = ${s.length_mm} mm`
   // At least as wide as the title (about 13 px per bold 22 px character), drawing centred
   const width = Math.round(Math.max(w * k + 2 * PAD, title.length * 13 + 24))
   const height = Math.round(h * k + 2 * PAD + TITLE_H)
@@ -63,7 +63,7 @@ export function shapeSvg(s: Shape): string {
 // File name like page1_007_U_8413mm.png
 export function shapeImageName(s: Shape, pageNo: number, index: number): string {
   const n = String(index + 1).padStart(3, "0")
-  return `page${pageNo}_${n}_${s.type}_${Math.round(s.true_length_mm ?? 0)}mm.png`
+  return `page${pageNo}_${n}_${s.type}_${Math.round(s.length_mm ?? 0)}mm.png`
 }
 
 // Saves every shape to <outDir>/shapes/ and returns the relative path of each image

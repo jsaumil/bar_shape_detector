@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { writeReports } from './report';
+import { type FinderShape, type ShapeRow, writeReports } from './report';
 
 // backend/finder/rebar_finder.ts (same path from src/rebar and dist/rebar)
 const FINDER = path.resolve(__dirname, '../../finder/rebar_finder.ts');
@@ -43,8 +43,18 @@ export class RebarService {
     if (!existsSync(jsonPath)) throw new InternalServerErrorException(`Finder failed:\n${log.slice(-2000)}`);
 
     const result = JSON.parse(await readFile(jsonPath, 'utf8'));
+    // One length per bar: the sum of its legs (corner to corner)
+    const shapes: ShapeRow[] = result.shapes.map((s: FinderShape) => ({
+      page: s.page,
+      tag: s.tag,
+      shape: s.shape,
+      type: s.type,
+      length_mm: s.length_to_corners_mm,
+      segments_mm: s.segments_mm,
+      image: s.image,
+    }));
     const url = (f: string) => `/api/jobs/${id}/${f}`;
-    await writeReports(dir, result.shapes, (f) => PUBLIC_URL + url(f));
+    await writeReports(dir, shapes, (f) => PUBLIC_URL + url(f));
     return {
       jobId: id,
       log,
@@ -54,10 +64,7 @@ export class RebarService {
         ...p,
         overlayUrl: url(`page${p.page}_shapes.png`),
       })),
-      shapes: result.shapes.map((s: { image?: string }) => ({
-        ...s,
-        imageUrl: s.image ? url(s.image) : null,
-      })),
+      shapes: shapes.map((s) => ({ ...s, imageUrl: s.image ? url(s.image) : null })),
     };
   }
 

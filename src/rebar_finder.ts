@@ -511,7 +511,7 @@ function measureXY(shapes: Shape[], sx: number, sy: number) {
 
 async function draw(page: mupdf.Page, shapes: Shape[], dpi: number, roi: Roi | null, outDir: string, pageNo: number) {
   const img = await renderPage(page, dpi, roi)
-  const svg = shapesSvg(shapes, shapes.map((s) => `${s.tag} ${s.true_length_mm!.toFixed(0)}`), img)
+  const svg = shapesSvg(shapes, shapes.map((s) => `${s.tag} ${s.length_mm}`), img)
   await saveOverlay(img, svg,
     path.join(outDir, `page${pageNo}_shapes.png`), path.join(outDir, `page${pageNo}_shapes_only.png`))
 }
