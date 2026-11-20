@@ -45,6 +45,7 @@ button {
 }
 button:disabled { opacity: 0.6; cursor: wait; }
 .error { color: var(--error); white-space: pre-wrap; }
+.note { color: var(--muted, #666); margin: 4px 0; }
 .stats { display: flex; flex-wrap: wrap; gap: 24px; align-items: center; }
 .stats b { font-size: 20px; display: block; }
 .stats span { color: var(--muted); font-size: 13px; }

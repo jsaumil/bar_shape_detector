@@ -71,12 +71,17 @@ export function pathPolylines(path: Drawing): Polyline[] {
 
 // Two lines leaving a point with directions this close (cosine) lie along each other
 const FOLD_BACK_COS = 0.9
+// A fold-back is a U-turn bend when the step from one run's end to the next run's start is
+// at most this far off square to the runs (cosine)
+const U_TURN_SLANT = 0.2
 // A line this close (pt) to longer lines along its whole length is a copy of them.
 // The plotter rounds each coordinate to about 0.06 pt, so copies do not match exactly;
 // real parallel bars are a cover or a bar spacing apart, far more than this
 const OVERLAY_TOL = 0.15
 const OVERLAY_STEP = 0.5
-const OVERLAY_CELL = 20
+const OVERLAY_CELL = 2
+// Lone line ends this many join tolerances apart are still one bar (see joinPolylines)
+const GAP_FACTOR = 2
 
 // Both lines start at the same point. If they leave it the same way, a path through it would
 // double back on itself, which a bar never does: they are two bars on top of each other or sharing an end
@@ -177,16 +182,46 @@ function dropOverlaid(lines: Polyline[]): Polyline[] {
     nearEnds(e).some((m) => lineEnds(m).some((f) =>
       carriesOn(line, m, e, f)
       && !nearEnds(f).some((n) => n !== line && lineEnds(n).some((g) => carriesOn(m, n, f, g))))))
+  // Repeat until nothing changes, as before, but recheck only the covered lines a restored
+  // line can affect: those with an end near its ends, or near the far end of a line that
+  // ends there (isNeeded looks two lines out). The rest would give the same answer again,
+  // and on a sheet with many thousands of covered strokes re-asking them all took minutes
+  const coveredEnds = new Map<string, Polyline[]>()
+  for (const line of covered) {
+    for (const e of lineEnds(line)) {
+      const k = `${cellOf(e[0])},${cellOf(e[1])}`
+      if (!coveredEnds.has(k)) coveredEnds.set(k, [])
+      coveredEnds.get(k)!.push(line)
+    }
+  }
+  const coveredNear = (e: Pt) => {
+    const near: Polyline[] = []
+    for (const dx of [-1, 0, 1]) {
+      for (const dy of [-1, 0, 1]) near.push(...(coveredEnds.get(`${cellOf(e[0]) + dx},${cellOf(e[1]) + dy}`) ?? []))
+    }
+    return near
+  }
+  let dirty = new Set(covered)
   let changed = true
   while (changed) {
     changed = false
+    const next = new Set<Polyline>()
+    const mark = (line: Polyline) => {
+      if (!covered.has(line)) return
+      dirty.add(line)
+      next.add(line)
+    }
     for (const line of covered) {
-      if (isNeeded(line)) {
-        covered.delete(line)
-        addEnds(line)
-        changed = true
+      if (!dirty.has(line) || !isNeeded(line)) continue
+      covered.delete(line)
+      addEnds(line)
+      changed = true
+      for (const e of lineEnds(line)) {
+        coveredNear(e).forEach(mark)
+        for (const m of nearEnds(e)) for (const f of lineEnds(m)) coveredNear(f).forEach(mark)
       }
     }
+    dirty = next
   }
   return lines.filter((line) => !covered.has(line))
 }
@@ -200,8 +235,11 @@ export function joinPolylines(input: Polyline[], tol: number | null = null): Pol
     if (!unique.has(k)) unique.set(k, line)
   }
   let polylines = dropOverlaid([...unique.values()])
+  // A piece shorter than tol would sit inside one cluster and fake a junction, so it is
+  // dropped; but it still bridges its two ends (a tiny bend arc between a leg and a crank)
+  let bridges: Polyline[] = []
   if (tol !== null) {
-    // A piece shorter than tol would sit inside one cluster and fake a junction
+    bridges = polylines.filter((line) => length(line, false) <= tol)
     polylines = polylines.filter((line) => length(line, false) > tol)
   }
 
@@ -210,7 +248,7 @@ export function joinPolylines(input: Polyline[], tol: number | null = null): Pol
     key = (pt) => `${Math.round(pt[0] / SNAP)},${Math.round(pt[1] / SNAP)}`
   } else {
     // Cluster nearby end points (union-find over a grid of tol-sized cells)
-    const points = polylines.flatMap((line) => [line[0]!, line.at(-1)!])
+    const points = [...polylines, ...bridges].flatMap((line) => [line[0]!, line.at(-1)!])
     const cellOf = (pt: Pt) => [Math.floor(pt[0] / tol), Math.floor(pt[1] / tol)] as const
     const cell = new Map<string, number[]>()
     points.forEach((pt, i) => {
@@ -237,9 +275,44 @@ export function joinPolylines(input: Polyline[], tol: number | null = null): Pol
         }
       }
     })
+    const nLine = polylines.length * 2
+    bridges.forEach((_, b) => { parent[find(nLine + 2 * b + 1)] = find(nLine + 2 * b) })
+    // Likewise a short piece whose own two ends fell into one cluster (a 0.19 pt bend arc
+    // whose start is within tol of the next leg too): it is a joint, not a bar
+    const isJoint = polylines.map((line, k) => length(line, false) <= 3 * tol && find(2 * k) === find(2 * k + 1))
+    // Second pass for wider plot-rounding gaps (0.24 pt where a bend arc got dropped as a
+    // copy of its leg): a line end still alone joins the one other lone end within
+    // GAP_FACTOR x tol, when each is the other's only candidate and the bar does not fold back
+    const members = new Map<number, number[]>()
+    for (let i = 0; i < nLine; i++) {
+      if (isJoint[i >> 1]) continue
+      const r = find(i)
+      if (!members.has(r)) members.set(r, [])
+      members.get(r)!.push(i)
+    }
+    const lone = [...members.values()].filter((m) => m.length === 1).map((m) => m[0]!)
+    const reach = Math.min(0.5, GAP_FACTOR * tol)
+    const candidates = new Map<number, number[]>()
+    for (const i of lone) {
+      const near = lone.filter((j) => j !== i && (j >> 1) !== (i >> 1) && dist(points[i]!, points[j]!) <= reach)
+      candidates.set(i, near)
+    }
+    const fromEnd = (i: number): Polyline => {
+      const line = polylines[i >> 1]!
+      return i % 2 === 0 ? line : [...line].reverse()
+    }
+    for (const i of lone) {
+      const near = candidates.get(i)!
+      if (near.length !== 1) continue
+      const j = near[0]!
+      if (j < i || candidates.get(j)!.length !== 1) continue
+      if (foldsBack(fromEnd(i), fromEnd(j))) continue
+      parent[find(i)] = find(j)
+    }
     const cluster = new Map<string, number>()
     points.forEach((pt, i) => cluster.set(`${pt[0]},${pt[1]}`, find(i)))
     key = (pt) => String(cluster.get(`${pt[0]},${pt[1]}`))
+    polylines = polylines.filter((_, k) => !isJoint[k])
   }
 
   const ends = new Map<string, number[]>()
@@ -368,9 +441,20 @@ export function barLength(path: Pt[], sx = 1.0, sy = 1.0): number {
     const u = unitVector(...aLast)
     const v = unitVector(...bFirst)
     const turn = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1])))
-    if (turn < (STRAIGHT_ANGLE * Math.PI) / 180 || turn > (170 * Math.PI) / 180) {
-      // nearly straight or folded back: no reliable corner, keep it as drawn
+    if (turn < (STRAIGHT_ANGLE * Math.PI) / 180) {
+      // nearly straight: no reliable corner, keep it as drawn
       total += dist(previous, a1) + dist(a1, b0)
+      previous = b0
+      continue
+    }
+    if (turn > (170 * Math.PI) / 180) {
+      // Folded back. A U-turn bend (a hairpin link's 180 degree bend) crosses straight over
+      // from one run's end to the next run's start: count half a circle across them. Anything
+      // else (an out-and-back copy, a zigzag) has no reliable corner: keep it as drawn
+      const gap = dist(a1, b0)
+      const across = gap > 0 ? Math.abs(((b0[0] - a1[0]) * u[0] + (b0[1] - a1[1]) * u[1]) / gap) : 1
+      const radius = gap / (2 * Math.sin(turn / 2))
+      total += dist(previous, a1) + (across <= U_TURN_SLANT ? radius * turn : gap)
       previous = b0
       continue
     }

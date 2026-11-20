@@ -20,7 +20,8 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 import type * as mupdf from "mupdf"
-import { barLength, detectShapes, joinPolylines, openPdf, parseRoi, pathPolylines, shapesFromLines } from "./detect_shapes_pdf"
+import { assignBeams, checkDepths, type DepthStatus, depthVerdict, findBeamTitles, sectionDepthCheck } from "./beams"
+import { detectShapes, joinPolylines, openPdf, parseRoi, pathPolylines, shapesFromLines } from "./detect_shapes_pdf"
 import { dist, round } from "./geometry"
 import { ocrImages } from "./ocr"
 import { getDrawings, getText, getWords } from "./pdf_drawings"
@@ -29,11 +30,21 @@ import { saveShapeImages } from "./shape_images"
 import { csvRow, measure, scaleGroups } from "./shape_lengths"
 import type { Dimension, Drawing, Polyline, Pt, Roi, ScaleGroup, Shape } from "./types"
 
-const BAR_LAYER_PATTERN = /REIN|REBAR|\bBARS?\b|STEEL|RFT/i
+const BAR_LAYER_PATTERN = /REIN|REBAR|\bBARS?\b|STEEL|RFT|\bTIES?\b/i
+// Annotation layers named after the bars (BEAM_STEEL_TXT, BEAM_STEEL_DOT, CBM_OCS_REINF_DOT):
+// stroked text, leaders and section dots, never bar shapes; hatch layers (REINF.HATCH.) are section dot fills
+const NOT_BAR_LAYER_PATTERN = /TXT|TEXT|DOT|DIM|HATCH/i
 const DIM_LAYER_PATTERN = /DIM/i
+// How far (share of the radius) a section dot's outline may stray from a circle
+const DOT_ROUNDNESS = 0.1
+// A dot's fill strokes lie within this share of its radius (plot rounding)
+const DOT_FILL_REACH = 1.1
 
 // Bar pieces on a bar layer are joined when their ends are this share of the line width apart
 const JOIN_SHARE_OF_WIDTH = 0.3
+// ... but never less than the plotter's coordinate rounding allows: a bend arc plotted 0.12 pt
+// across and 0.06 pt along from its straight leaves a 0.134 pt gap even with thin pens
+const MIN_JOIN_TOL = 0.18
 
 // Scale groups within this share of the main scale are the same scale (rounding of numbers)
 const SAME_SCALE = 0.03
@@ -51,9 +62,19 @@ const MAX_MARKER_SIZE = 4.0
 const MARKER_ON_LINE = 0.3
 // ... and no further beyond the line's ends than this (pt, plus 15% of the line)
 const MARKER_BEYOND_END = 1.5
+// Stroked dimension ends (slash ticks, or short extension-line stubs crossing the
+// line) are lines up to this long (pt) ...
+const MAX_TICK_LENGTH = 8.0
+// ... that cross the dimension line at this angle or steeper (degrees)
+const MIN_TICK_ANGLE = 30
+// A scale is trusted only when at least this many dimensions agree on it;
+// fewer is more likely misread table marks than a real scale
+const MIN_SCALE_DIMENSIONS = 5
 // Collinear pieces of one dimension line (e.g. broken around its text) are joined
 // when the gap between them is less than this share of the longer piece
 const LINE_JOIN_GAP = 0.6
+// A line whose direction has an x part up to this (sin of ~3 deg) reads as vertical text
+const NEAR_VERTICAL = 0.05
 
 // Text strokes are paths no bigger than this (pt)
 const MAX_GLYPH_SIZE = 15.0
@@ -67,6 +88,8 @@ const MAX_TEXT_STROKES = 60
 // otherwise all are read and the majority wins
 const OCR_HEIGHTS = [40, 30, 50, 60, 80]
 const OCR_WHITELIST = "0123456789-/@LTCRYXABEH()."
+// A dimension value: 2 to 6 digits, never starting with 0 ("008" is 800 read upside down)
+const DIM_NUMBER = /^[1-9]\d{1,5}$/
 // Text wider than this many times its height is not a dimension number
 const MAX_TEXT_ASPECT = 8
 
@@ -99,6 +122,10 @@ interface PageResult {
   mm_per_pt_vertical: number
   vertical_scale_from: string
   bars_from: string
+  beam_titles: number
+  shapes_in_beams: number
+  depth_check: string
+  depth_status: DepthStatus
   shapes: Shape[]
 }
 
@@ -168,23 +195,49 @@ class Grid<T> {
 function findBarLayers(drawings: Drawing[], forced?: string): string[] {
   const layers = [...new Set(drawings.map((p) => p.layer))]
   if (forced) return layers.filter((name) => name.toLowerCase() === forced.toLowerCase())
-  return layers.filter((name) => name && BAR_LAYER_PATTERN.test(name))
+  return layers.filter((name) => name && BAR_LAYER_PATTERN.test(name) && !NOT_BAR_LAYER_PATTERN.test(name))
+}
+
+// A stroked circle (closed, every point about the same distance from the centre) is a bar
+// seen end-on in a section. It is never a bar shape, and where it touches a link's corner its
+// arcs would join onto the link and break it apart
+function dotCircle(line: Polyline): [Pt, number] {
+  const c: Pt = [0, 1].map((k) => line.reduce((sum, p) => sum + p[k]!, 0) / line.length) as Pt
+  return [c, line.reduce((sum, p) => sum + dist(p, c), 0) / line.length]
+}
+
+function isDot(line: Polyline): boolean {
+  if (line.length < 8 || dist(line[0]!, line.at(-1)!) > 0.05) return false
+  const [c, mean] = dotCircle(line)
+  return mean > 0 && line.every((p) => Math.abs(dist(p, c) - mean) <= DOT_ROUNDNESS * mean)
 }
 
 function findBars(drawings: Drawing[], barLayers: string[], roi: Roi | null): [Shape[], Drawing[], string] {
   if (barLayers.length) {
     const paths = drawings.filter((p) => barLayers.includes(p.layer) && p.type.includes("s"))
-    const lines: Polyline[] = []
+    let lines: Polyline[] = []
     for (const p of paths) {
       const r = p.rect
       if (roi && (r.x1 < roi.x0 || r.x0 > roi.x1 || r.y1 < roi.y0 || r.y0 > roi.y1)) continue
       lines.push(...pathPolylines(p))
     }
+    // Section dots, and the strokes that fill them (hatch lines, or a zigzag of thin filled
+    // triangles): drawn within the dot, straight or doubling back on themselves. A link's bend
+    // also lies on the dot's edge, but it is a smooth arc that never doubles back
+    const dots = lines.filter(isDot).map(dotCircle)
+    const zigzags = (line: Polyline) => line.slice(2).some((c, k) => {
+      const [a, b] = [line[k]!, line[k + 1]!]
+      const [u, v] = [[b[0] - a[0], b[1] - a[1]], [c[0] - b[0], c[1] - b[1]]]
+      return u[0]! * v[0]! + u[1]! * v[1]! < -0.5 * Math.hypot(u[0]!, u[1]!) * Math.hypot(v[0]!, v[1]!)
+    })
+    const inDot = (line: Polyline) => (line.length === 2 || zigzags(line))
+      && dots.some(([c, r]) => line.every((p) => dist(p, c) <= DOT_FILL_REACH * r))
+    lines = lines.filter((line) => !isDot(line) && !inDot(line))
     // CAD exports often draw each piece of a bar (straight, bend arc, leg) as its own
     // path with ends slightly apart; join ends closer than a share of the line width
     const widths = paths.map((p) => p.width ?? 0).sort((a, b) => a - b)
     const tol = widths.length
-      ? Math.min(0.5, Math.max(0.05, JOIN_SHARE_OF_WIDTH * widths[Math.floor(widths.length / 2)]!))
+      ? Math.min(0.5, Math.max(MIN_JOIN_TOL, JOIN_SHARE_OF_WIDTH * widths[Math.floor(widths.length / 2)]!))
       : null
     const shapes = shapesFromLines(joinPolylines(lines, tol).map((line) => [line, "layer"] as const))
     return [shapes, paths, `layer ${barLayers.join(", ")}`]
@@ -195,11 +248,11 @@ function findBars(drawings: Drawing[], barLayers: string[], roi: Roi | null): [S
 // ---------------------------------------------------------------- dimensions
 
 // Measuring points of small filled markers: arrow tip or tick/dot centre
-function markerPoints(drawings: Drawing[]): Pt[] {
+function markerPoints(drawings: Drawing[], maxSize = MAX_MARKER_SIZE): Pt[] {
   const points: Pt[] = []
   for (const path of drawings) {
     const r = path.rect
-    if (!path.type.includes("f") || Math.max(width(r), height(r)) > MAX_MARKER_SIZE) continue
+    if (!path.type.includes("f") || Math.max(width(r), height(r)) > maxSize) continue
     const verts: Pt[] = []
     for (const poly of pathPolylines(path)) {
       for (const q of poly) if (verts.every((v) => dist(q, v) > 1e-3)) verts.push(q)
@@ -214,6 +267,21 @@ function markerPoints(drawings: Drawing[]): Pt[] {
     }
   }
   return points
+}
+
+// Short stroked lines that may be dimension ends: slash ticks or extension-line stubs.
+// Filled shapes are markers, never ticks (an arrowhead's back edge crosses the line too)
+function tickSegments(drawings: Drawing[]): [Pt, Pt][] {
+  const ticks: [Pt, Pt][] = []
+  for (const path of drawings) {
+    if (!path.type.includes("s") || path.type.includes("f")) continue
+    for (const item of path.items) {
+      if (item[0] !== "l") continue
+      const length = dist(item[1], item[2])
+      if (length >= 0.5 && length <= MAX_TICK_LENGTH) ticks.push([item[1], item[2]])
+    }
+  }
+  return ticks
 }
 
 // Straight segments of the given paths, with collinear pieces joined
@@ -255,10 +323,16 @@ function candidateLines(paths: Drawing[]): Line[] {
   return lines
 }
 
-// Pairs of consecutive markers lying on one line
-function dimensionIntervals(lines: Line[], markers: Pt[]): Dimension[] {
+// Pairs of consecutive markers lying on one line. Filled markers count where they
+// sit; stroked ticks count where they cross the line
+function dimensionIntervals(lines: Line[], markers: Pt[], ticks: [Pt, Pt][] = []): Dimension[] {
   const grid = new Grid<Pt>()
   for (const m of markers) grid.add(m, m[0], m[1], m[0], m[1])
+  const tickGrid = new Grid<[Pt, Pt]>()
+  for (const t of ticks) {
+    tickGrid.add(t, Math.min(t[0][0], t[1][0]), Math.min(t[0][1], t[1][1]), Math.max(t[0][0], t[1][0]), Math.max(t[0][1], t[1][1]))
+  }
+  const minSin = Math.sin((MIN_TICK_ANGLE * Math.PI) / 180)
 
   const intervals: Dimension[] = []
   const seen = new Set<string>()
@@ -270,7 +344,23 @@ function dimensionIntervals(lines: Line[], markers: Pt[]): Dimension[] {
     for (const m of grid.query(Math.min(a[0], b[0]) - 1, Math.min(a[1], b[1]) - 1,
       Math.max(a[0], b[0]) + 1, Math.max(a[1], b[1]) + 1)) {
       const [along, across] = project(m, origin, u)
-      if (Math.abs(across) <= MARKER_ON_LINE && t0 - reach <= along && along <= t1 + reach) found.push([along, m])
+      // The end is where the marker sits along the line, on the line itself: a marker a
+      // little off the line would tilt the interval and turn its text the wrong way up
+      if (Math.abs(across) <= MARKER_ON_LINE && t0 - reach <= along && along <= t1 + reach) {
+        found.push([along, [origin[0] + u[0] * along, origin[1] + u[1] * along]])
+      }
+    }
+    if (ticks.length) {
+      for (const [ta, tb] of tickGrid.query(Math.min(a[0], b[0]) - MAX_TICK_LENGTH, Math.min(a[1], b[1]) - MAX_TICK_LENGTH,
+        Math.max(a[0], b[0]) + MAX_TICK_LENGTH, Math.max(a[1], b[1]) + MAX_TICK_LENGTH)) {
+        const [alA, acA] = project(ta, origin, u)
+        const [alB, acB] = project(tb, origin, u)
+        if (acA * acB > 0 || Math.abs(acA - acB) < minSin * dist(ta, tb)) continue // misses the line, or too flat
+        const along = alA + (acA / (acA - acB)) * (alB - alA)
+        if (t0 - reach <= along && along <= t1 + reach) {
+          found.push([along, [origin[0] + u[0] * along, origin[1] + u[1] * along]])
+        }
+      }
     }
     found.sort((x, y) => x[0] - y[0] || x[1][0] - y[1][0] || x[1][1] - y[1][1])
     const stops: [number, Pt][] = []
@@ -294,7 +384,8 @@ function dimensionIntervals(lines: Line[], markers: Pt[]): Dimension[] {
 // Reading direction u (left to right / bottom to top) and "down" v of a dimension's text
 function textFrame(p1: Pt, p2: Pt): [Pt, Pt] {
   let u = unit(p1, p2)
-  if (u[0] < -1e-6 || (Math.abs(u[0]) <= 1e-6 && u[1] > 0)) u = [-u[0], -u[1]]
+  // Within a few degrees of vertical counts as vertical (plot rounding tilts lines slightly)
+  if (Math.abs(u[0]) <= NEAR_VERTICAL ? u[1] > 0 : u[0] < 0) u = [-u[0], -u[1]]
   return [u, [-u[1], u[0]]]
 }
 
@@ -346,7 +437,8 @@ function glyphBlob(dim: Dimension, grid: Grid<Glyph>): Blob | null {
 }
 
 // Draw the number's strokes black on white, reading left to right
-function renderBlob(blob: Blob, textHeight: number): Promise<Buffer> {
+// (turned half a turn when flip is set, for text written the other way round)
+function renderBlob(blob: Blob, textHeight: number, flip = false): Promise<Buffer> {
   const [glyphs, [a0, a1, c0, c1], mid, u] = blob
   const zoom = textHeight / Math.max(c1 - c0, 0.3)
   const margin = 0.4 * (c1 - c0) + 0.2
@@ -355,7 +447,9 @@ function renderBlob(blob: Blob, textHeight: number): Promise<Buffer> {
   if (w * h > 4e6) return strokesPng(1, 1, [], 1)
   const polylines = glyphs.flatMap((g) => g.polylines.map((poly) => poly.map((q): Pt => {
     const [al, ac] = project(q, mid, u)
-    return [Math.trunc((al - a0 + margin) * zoom), Math.trunc((ac - c0 + margin) * zoom)]
+    return flip
+      ? [Math.trunc((a1 - al + margin) * zoom), Math.trunc((c1 - ac + margin) * zoom)]
+      : [Math.trunc((al - a0 + margin) * zoom), Math.trunc((ac - c0 + margin) * zoom)]
   })))
   return strokesPng(w, h, polylines, Math.max(2, Math.floor(textHeight / 12)))
 }
@@ -363,14 +457,27 @@ function renderBlob(blob: Blob, textHeight: number): Promise<Buffer> {
 // OCR at several sizes and vote: single OCR runs misread digits (5 -> 3) now and then.
 // Round 1 reads every number at two sizes; if both agree it is accepted. The rest
 // that look like numbers are read at the other sizes and the majority wins.
-async function ocrBlobs(blobs: Blob[]): Promise<string[]> {
-  const number = /^\d{2,6}$/
+// With bothWays, numbers that do not read are read again turned half a turn
+// (rotated sheets: "800" upside down reads "008")
+async function ocrBlobs(blobs: Blob[], bothWays = false): Promise<string[]> {
   const results = blobs.map(() => "")
   const todo = blobs.flatMap(([, [a0, a1, c0, c1]], i) =>
     a1 - a0 <= MAX_TEXT_ASPECT * Math.max(c1 - c0, 0.1) ? [i] : []) // wider is not a number
+  await ocrVote(blobs, todo, results, false)
+  if (bothWays) {
+    const again = todo.filter((i) => !DIM_NUMBER.test(results[i]!))
+    const flipped = blobs.map(() => "")
+    await ocrVote(blobs, again, flipped, true)
+    for (const i of again) if (DIM_NUMBER.test(flipped[i]!)) results[i] = flipped[i]!
+  }
+  return results
+}
+
+async function ocrVote(blobs: Blob[], todo: number[], results: string[], flip: boolean) {
+  const number = DIM_NUMBER
   const reads = new Map<number, string[]>(todo.map((i) => [i, []]))
   const readAt = async (indexes: number[], h: number) => {
-    const texts = await ocrImages(await Promise.all(indexes.map((i) => renderBlob(blobs[i]!, h))), OCR_WHITELIST)
+    const texts = await ocrImages(await Promise.all(indexes.map((i) => renderBlob(blobs[i]!, h, flip))), OCR_WHITELIST)
     indexes.forEach((i, k) => reads.get(i)!.push(texts[k]!))
   }
   for (const h of OCR_HEIGHTS.slice(0, 2)) await readAt(todo, h)
@@ -387,7 +494,6 @@ async function ocrBlobs(blobs: Blob[]): Promise<string[]> {
     const top = mostCommon(r.filter((t) => number.test(t)))[0]
     results[i] = top && top[1] >= 2 ? top[0] : "?" + r[0] // no agreement: not trusted
   }
-  return results
 }
 
 // Numbers in the PDF's real text: [value, centre, size]
@@ -400,13 +506,18 @@ function textWords(page: mupdf.Page): [number, Pt, number][] {
   return words
 }
 
+// strokedTicks (second try): also take stroked ticks and larger arrowheads as dimension
+// ends, and read rotated text both ways
 async function readDimensions(
-  page: mupdf.Page, drawings: Drawing[], barPaths: Drawing[], dimLayers: string[],
+  page: mupdf.Page, drawings: Drawing[], barPaths: Drawing[], dimLayers: string[], strokedTicks = false,
 ): Promise<Dimension[]> {
   const barSet = new Set(barPaths)
   const other = drawings.filter((p) => !barSet.has(p))
   const linePaths = dimLayers.length ? other.filter((p) => dimLayers.includes(p.layer)) : other
-  const dims = dimensionIntervals(candidateLines(linePaths), markerPoints(other))
+  // The second try also takes larger arrowheads (up to a tick's length)
+  const ticks = strokedTicks ? tickSegments(linePaths) : []
+  const markers = markerPoints(other, strokedTicks ? MAX_TICK_LENGTH : MAX_MARKER_SIZE)
+  const dims = dimensionIntervals(candidateLines(linePaths), markers, ticks)
 
   const words = textWords(page)
   const grid = new Grid<Glyph>(MAX_GLYPH_SIZE)
@@ -444,14 +555,14 @@ async function readDimensions(
     if (blob) jobs.push([d, blob])
   }
 
-  const texts = await ocrBlobs(jobs.map(([, blob]) => blob))
+  const texts = await ocrBlobs(jobs.map(([, blob]) => blob), strokedTicks)
   jobs.forEach(([d], i) => {
     d.text = texts[i]!
     d.source = "ocr"
   })
 
   for (const d of dims) {
-    d.value = /^\d{2,6}$/.test(d.text) ? Number(d.text) : null
+    d.value = DIM_NUMBER.test(d.text) ? Number(d.text) : null
     d.scale = d.value ? d.value / d.length_pt : null
   }
   return dims
@@ -480,7 +591,54 @@ function consensusScale(dims: Dimension[]): number {
   })
   const agree = dims.filter((d) => Math.abs(d.value! / best - d.length_pt) <= PLOT_ROUNDING)
   const used = agree.length ? agree : dims
-  return used.reduce((sum, d) => sum + d.value!, 0) / used.reduce((sum, d) => sum + d.length_pt, 0)
+  const average = used.reduce((sum, d) => sum + d.value!, 0) / used.reduce((sum, d) => sum + d.length_pt, 0)
+  // Short dimensions placed on one drawing grid all round the same way (every 800 reading
+  // 21.12 pt where 21.075 is true), which biases the average; the scale can only lie where
+  // every agreeing dimension allows it, so keep the average inside that range (if there is one)
+  if (!agree.length) return average
+  const low = Math.max(...agree.map((d) => d.value! / (d.length_pt + PLOT_ROUNDING)))
+  const high = Math.min(...agree.map((d) => d.value! / (d.length_pt - PLOT_ROUNDING)))
+  return low <= high ? Math.min(high, Math.max(low, average)) : average
+}
+
+// Scale groups with the main one merged from its rounding-split parts, or [] when
+// too few dimensions back the main scale to trust it
+function trustedGroups(dims: Dimension[]): ScaleGroup[] {
+  let groups = scaleGroups(dims)
+  if (!groups.length) return []
+  // The main scale is the one that covers the most of the drawing: the largest total
+  // dimension length, not the most dimensions. Many small 1:25 sections can carry as
+  // many dimensions as the long elevations they belong to
+  const extent = (g: ScaleGroup) => dims.filter((d) => d.group_scale === g.scale).reduce((sum, d) => sum + d.length_pt, 0)
+  groups.sort((a, b) => extent(b) - extent(a))
+  // Groups only slightly off the main one are the same scale: merge them
+  const main = groups[0]!.scale
+  const merged = new Set(groups.filter((g) => Math.abs(g.scale / main - 1) <= SAME_SCALE).map((g) => g.scale))
+  const mergedDims = dims.filter((d) => merged.has(d.group_scale ?? NaN))
+  if (mergedDims.length < MIN_SCALE_DIMENSIONS) {
+    for (const d of dims) d.group_scale = null
+    return []
+  }
+  // Rounding splits one scale into groups, each biased its own way: only all of them together are true
+  const mergedScale = consensusScale(mergedDims)
+  groups = [{ scale: mergedScale, count: mergedDims.length }, ...groups.slice(1).filter((g) =>
+    !merged.has(g.scale) && isStandardRatio(g.scale / main))]
+  for (const d of mergedDims) d.group_scale = mergedScale
+  const kept = new Set(groups.map((g) => g.scale))
+  for (const d of dims) if (!kept.has(d.group_scale ?? NaN)) d.group_scale = null
+  return groups
+}
+
+// A few of the longest dimensions behind a scale, as "1400 = 44.10 pt"
+function scaleExamples(dims: Dimension[], scale: number): string {
+  const seen = new Set<number>()
+  return dims
+    .filter((d) => d.group_scale === scale)
+    .sort((a, b) => b.length_pt - a.length_pt)
+    .filter((d) => !seen.has(d.value!) && seen.add(d.value!))
+    .slice(0, 3)
+    .map((d) => `${d.value} = ${d.length_pt.toFixed(2)} pt`)
+    .join(", ")
 }
 
 // mm per pt from a "SCALE 1:N" label in real text, assuming a true-size plot
@@ -489,22 +647,6 @@ function scaleFromLabel(page: mupdf.Page): [number | null, number | null] {
   if (!found.length) return [null, null]
   const n = Number(mostCommon(found)[0]![0])
   return [(25.4 / 72) * n, n]
-}
-
-// Lengths with separate horizontal (sx) and vertical (sy) mm per point, for
-// drawings that are not to scale in one direction
-function measureXY(shapes: Shape[], sx: number, sy: number) {
-  const d = (a: Pt, b: Pt) => Math.hypot((b[0] - a[0]) * sx, (b[1] - a[1]) * sy)
-  for (const s of shapes) {
-    const pts = s.closed ? [...s.points, s.points[0]!] : s.points
-    s.segments_mm = pts.slice(1).map((b, i) => Math.round(d(pts[i]!, b)))
-    s.length_mm = s.segments_mm.reduce((a, b) => a + b, 0)
-    s.straight_mm = s.straight_ends.map(([a, b]) => Math.round(d(a, b)))
-    s.straight_length_mm = s.straight_mm.reduce((a, b) => a + b, 0)
-    s.true_length_mm = round(barLength(s.path, sx, sy), 1)
-    s.mm_per_pt = round(sx, 3)
-    s.scale_from = "horizontal and vertical scales"
-  }
 }
 
 // ---------------------------------------------------------------- output
@@ -561,22 +703,21 @@ async function processPage(page: mupdf.Page, pageNo: number, args: Args, roi: Ro
   } else if (args.scale) {
     [mainScale, scaleNote] = [(25.4 / 72) * args.scale, `given (--scale 1:${args.scale})`]
   } else {
+    // First filled arrowheads/ticks only; if that gives no trusted scale, also stroked
+    // ticks (slashes, extension stubs) with rotated text read both ways
+    let how = ""
     dims = await readDimensions(page, drawings, barPaths, dimLayers)
-    groups = scaleGroups(dims)
+    groups = trustedGroups(dims)
+    if (!groups.length) {
+      dims = await readDimensions(page, drawings, barPaths, dimLayers, true)
+      groups = trustedGroups(dims)
+      how = ", second try: stroked ticks / large arrows"
+    }
     if (groups.length) {
-      // Groups only slightly off the main one are the same scale: merge them
-      const main = groups[0]!.scale
-      const merged = new Set(groups.filter((g) => Math.abs(g.scale / main - 1) <= SAME_SCALE).map((g) => g.scale))
-      const mergedDims = dims.filter((d) => merged.has(d.group_scale ?? NaN))
-      // Rounding splits one scale into groups, each biased its own way: only all of them together are true
-      const mergedScale = consensusScale(mergedDims)
-      groups = [{ scale: mergedScale, count: mergedDims.length }, ...groups.slice(1).filter((g) =>
-        !merged.has(g.scale) && isStandardRatio(g.scale / main))]
-      for (const d of mergedDims) d.group_scale = mergedScale
-      const kept = new Set(groups.map((g) => g.scale))
-      for (const d of dims) if (!kept.has(d.group_scale ?? NaN)) d.group_scale = null
       mainScale = groups[0]!.scale
-      scaleNote = `from ${groups[0]!.count} dimensions`
+      scaleNote = `from ${groups[0]!.count} dimensions${how}`
+      console.log(`  scale: ${mainScale.toFixed(3)} mm per pt = 1:${(mainScale / (25.4 / 72)).toFixed(1)} on paper; `
+        + `${groups[0]!.count} dimensions agree, e.g. ${scaleExamples(dims, mainScale)}`)
     } else {
       const [scale, n] = scaleFromLabel(page)
       mainScale = scale
@@ -607,18 +748,89 @@ async function processPage(page: mupdf.Page, pageNo: number, args: Args, roi: Ro
       ? `same as horizontal (checked by ${vertical.length} vertical dimensions)`
       : "ASSUMED same as horizontal: no vertical dimensions to check it"
   }
-  if (scaleY === mainScale) measure(shapes, groups.length ? dims : [], mainScale)
-  else measureXY(shapes, mainScale, scaleY)
+  measure(shapes, groups.length ? dims : [], mainScale, scaleY)
+  shapes.forEach((s, i) => (s.tag = `#${i + 1}`))
+
+  // Which beam each shape belongs to, from the beam titles ("B47 (300x600)")
+  const titles = findBeamTitles(page)
+  const assignment = assignBeams(shapes, titles)
+  shapes.forEach((s, i) => {
+    const [t, also] = assignment.beams[i]!
+    s.beam = t?.label ?? null
+    s.beam_size = t?.size ?? null
+    s.also_in = also.map((a) => a.label)
+  })
+  const inBeams = shapes.filter((s) => s.beam).length
+  console.log(`  beams: ${titles.length} titles; ${inBeams} of ${shapes.length} shapes assigned`
+    + `${shapes.some((s) => s.also_in!.length) ? `, ${shapes.filter((s) => s.also_in!.length).length} run on into a neighbouring beam` : ""}`
+    + `${titles.length ? "" : " (no beam titles in the PDF text)"}`)
+
+  // Check the scale against the beam depths in the titles
+  const barSet = new Set(barPaths)
+  const lines = drawings.filter((p) => !barSet.has(p) && p.type.includes("s"))
+    .flatMap((p) => p.items.filter((it) => it[0] === "l").map((it) => [it[1], it[2]] as [Pt, Pt]))
+  const verdict = depthVerdict(checkDepths(shapes, assignment, lines, scaleY))
+  if (verdict.status === "confirmed") {
+    console.log(`  scale check: ${verdict.text}`)
+    if (scaleYNote.startsWith("ASSUMED")) scaleYNote = "same as horizontal (checked by beam depths)"
+  } else if (verdict.status === "unchecked") {
+    console.log(`  scale check: ${verdict.text}`)
+  } else {
+    console.log(`  WARNING: ${verdict.text}`)
+    if (verdict.status === "exaggerated" && scaleYNote.startsWith("ASSUMED")) {
+      scaleYNote = `same as horizontal, but beams are drawn ${verdict.factor}x deep (lengths as drawn)`
+    }
+  }
+  // No beam titles to check against: the sections' depth dimensions tell the depths instead,
+  // and elevations drawn N times deeper than their horizontal scale are measured at 1/N vertically
+  let [depthText, depthStatus] = [verdict.text, verdict.status as DepthStatus]
+  if (verdict.status === "unchecked" && scaleYNote.startsWith("ASSUMED")) {
+    const check = sectionDepthCheck(shapes, (s) => s.mm_per_pt === round(mainScale!, 3), lines, dims, mainScale)
+    console.log(`  scale check (sections): ${check.text}`)
+    if (check.factor === 1) {
+      scaleYNote = "same as horizontal (checked by section depths)"
+      ;[depthText, depthStatus] = [check.text, "confirmed"]
+    } else if (check.factor) {
+      // The elevations' dimensions read N times what is drawn (a dimension scale factor, e.g.
+      // DIMLFAC 2 on elevations squashed along the beam): the true drawing scale is the sections'
+      // one. Lengths are as drawn, the same as the CAD program's length of each bar
+      const dimsScale = mainScale
+      // That group must be dimensioned both ways (a section's width and depth): a group of
+      // vertical dimensions only is the elevations' own depths, overridden to read less than
+      // drawn (depths drawn N times deep), and then the main scale is the drawing scale
+      const both = (g: ScaleGroup) => {
+        const own = dims.filter((d) => d.group_scale === g.scale)
+        const vertical = own.filter((d) => Math.abs(d.p1[0] - d.p2[0]) <= NEAR_VERTICAL * d.length_pt).length
+        return vertical > 0 && own.length - vertical > 0
+      }
+      const drawing = groups.find((g) => Math.abs((g.scale * check.factor!) / dimsScale - 1) <= 0.01 && both(g))
+      if (drawing) {
+        mainScale = scaleY = drawing.scale
+        measure(shapes, dims.filter((d) => d.group_scale !== dimsScale), mainScale)
+        scaleNote = `from ${drawing.count} section dimensions (elevation dimensions read ${check.factor}x the drawing)`
+        scaleYNote = "same as horizontal (as drawn; checked by section depths)"
+        ;[depthText, depthStatus] = [`${check.text}: their dimensions read ${check.factor}x what is drawn, `
+          + `lengths are as drawn at ${mainScale.toFixed(3)} mm per pt`, "corrected"]
+        console.log(`  drawing scale: ${mainScale.toFixed(3)} mm per pt (sections); elevation dimensions read `
+          + `${check.factor}x the drawing (${dimsScale.toFixed(3)} mm per pt); lengths as drawn`)
+      } else {
+        ;[depthText, depthStatus] = [`${check.text}: lengths as drawn at the dimension scale`, "exaggerated"]
+        console.log(`  WARNING: ${depthText}`)
+        scaleYNote = `same as horizontal, but elevations are drawn ${check.factor}x deep (lengths as drawn)`
+      }
+    }
+  }
   if (scaleYNote.startsWith("ASSUMED")) {
     console.log(`  warning: vertical scale ${scaleYNote}. If the sheet is not drawn to scale`
       + " vertically, give it with --vertical-ratio R, --scale-y N or --mm-per-pt-y X.")
   }
-  shapes.forEach((s, i) => (s.tag = `#${i + 1}`))
+
   console.log(`  page ${pageNo}: ${shapes.length} shapes (${barMode}), scale ${mainScale.toFixed(3)} mm/pt ${scaleNote}`)
   return {
     page: pageNo, mm_per_pt: round(mainScale, 4), scale_from: scaleNote!,
     mm_per_pt_vertical: round(scaleY, 4), vertical_scale_from: scaleYNote,
-    bars_from: barMode, shapes,
+    bars_from: barMode, beam_titles: titles.length, shapes_in_beams: inBeams,
+    depth_check: depthText, depth_status: depthStatus, shapes,
   }
 }
 
@@ -682,6 +894,9 @@ async function main() {
   const rows = results.flatMap((r) => r.shapes.map((s) => ({
     page: r.page,
     tag: s.tag,
+    beam: s.beam ?? null,
+    beam_size: s.beam_size ?? null,
+    also_in: s.also_in ?? [],
     shape: s.name,
     type: s.type,
     true_length_mm: s.true_length_mm,
@@ -698,10 +913,11 @@ async function main() {
     pages: results.map(({ shapes, ...info }) => info),
     shapes: rows,
   }, null, 2))
-  let csv = csvRow(["page", "tag", "shape", "type", "true_length_mm", "length_to_corners_mm",
+  let csv = csvRow(["page", "tag", "beam", "beam_size", "also_in", "shape", "type", "true_length_mm", "length_to_corners_mm",
     "segments_mm", "straight_length_mm", "straight_parts_mm", "image"])
   for (const row of rows) {
-    csv += csvRow([row.page, row.tag, row.shape, row.type, row.true_length_mm, row.length_to_corners_mm,
+    csv += csvRow([row.page, row.tag, row.beam ?? "", row.beam_size ?? "", row.also_in.join(" "), row.shape, row.type,
+      row.true_length_mm, row.length_to_corners_mm,
       row.segments_mm.join(" + "), row.straight_length_mm, row.straight_parts_mm.join(" + "), row.image])
   }
   await Bun.write(path.join(outDir, "shapes.csv"), csv)

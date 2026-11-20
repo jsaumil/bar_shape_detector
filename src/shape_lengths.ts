@@ -7,7 +7,7 @@
 // Needs the `tesseract` program.
 // Outputs: shape_lengths.csv, shape_lengths.json, shapes.json, shape_lengths.png, shape_lengths_only.png
 import { parseArgs } from "node:util"
-import { detectShapes, openPdf, parseRoi } from "./detect_shapes_pdf"
+import { barLength, detectShapes, openPdf, parseRoi } from "./detect_shapes_pdf"
 import { dist, round } from "./geometry"
 import { ocrImages } from "./ocr"
 import { getDrawings } from "./pdf_drawings"
@@ -242,7 +242,23 @@ function detailZones(dims: Dimension[], mainScale: number): DetailZone[] {
   })
 }
 
-export function measure(shapes: Shape[], dims: Dimension[], mainScale: number) {
+// Lengths with separate horizontal (sx) and vertical (sy) mm per point, for
+// drawings that are not to scale in one direction
+function measureXY(s: Shape, sx: number, sy: number) {
+  const d = (a: Pt, b: Pt) => Math.hypot((b[0] - a[0]) * sx, (b[1] - a[1]) * sy)
+  const pts = s.closed ? [...s.points, s.points[0]!] : s.points
+  s.segments_mm = pts.slice(1).map((b, i) => Math.round(d(pts[i]!, b)))
+  s.length_mm = s.segments_mm.reduce((a, b) => a + b, 0)
+  s.straight_mm = s.straight_ends.map(([a, b]) => Math.round(d(a, b)))
+  s.straight_length_mm = s.straight_mm.reduce((a, b) => a + b, 0)
+  s.true_length_mm = round(barLength(s.path, sx, sy), 1)
+  s.mm_per_pt = round(sx, 3)
+  s.scale_from = "horizontal and vertical scales"
+}
+
+// Lengths of the shapes. Shapes in a detail drawn at another scale (a 1:25 section) use
+// that scale both ways; the rest use mainScale horizontally and scaleY vertically
+export function measure(shapes: Shape[], dims: Dimension[], mainScale: number, scaleY = mainScale) {
   const zones = detailZones(dims, mainScale)
   const mainDims = dims.filter((d) => d.group_scale === mainScale)
   for (const s of shapes) {
@@ -254,6 +270,9 @@ export function measure(shapes: Shape[], dims: Dimension[], mainScale: number) {
     if (zone) {
       scale = zone.scale
       s.scale_from = `detail with dimensions ${zone.values.join(", ")}`
+    } else if (scaleY !== mainScale) {
+      measureXY(s, mainScale, scaleY)
+      continue
     } else {
       scale = mainScale
       const midOf = (d: Dimension): Pt => [(d.p1[0] + d.p2[0]) / 2, (d.p1[1] + d.p2[1]) / 2]

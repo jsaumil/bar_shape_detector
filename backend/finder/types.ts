@@ -69,6 +69,10 @@ export interface Shape {
   straight_mm?: number[]
   straight_length_mm?: number
   mm_per_pt?: number
+  // Filled in by assignBeams(): the beam title it belongs to, and beams it runs on into
+  beam?: string | null
+  beam_size?: string | null
+  also_in?: string[]
 }
 
 export interface Dimension {

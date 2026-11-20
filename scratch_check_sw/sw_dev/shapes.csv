@@ -1,0 +1,122 @@
+page,tag,beam,beam_size,also_in,shape,type,true_length_mm,length_to_corners_mm,segments_mm,straight_length_mm,straight_parts_mm,image
+1,#1,B11,240x600,B4 B3 B16,other (6 segments),other,5792.2,6099,258 + 711 + 2081 + 642 + 2149 + 258,5320,139 + 542 + 1981 + 542 + 1981 + 135,shapes/page1_001_other_6099mm.png
+1,#2,B4,240x600,B8 B11 B16,U (opens right),U,4497,4517,373 + 3789 + 355,4422,351 + 3739 + 332,shapes/page1_002_U_4517mm.png
+1,#3,B4,240x600,B8 B11 B16,U (opens right),U,4189.3,4221,305 + 3593 + 323,4071,282 + 3516 + 273,shapes/page1_003_U_4221mm.png
+1,#4,B4,240x600,B8 B11 B16,U (opens left),U,4340.2,4363,332 + 3689 + 342,4258,305 + 3639 + 314,shapes/page1_004_U_4363mm.png
+1,#5,B4,240x600,B8 B11 B16,U (opens left),U,4023.7,4066,282 + 3493 + 291,3866,232 + 3393 + 241,shapes/page1_005_U_4066mm.png
+1,#6,B16,240x600,B11 B4 B3,other (6 segments),other,5796.1,6110,258 + 711 + 2081 + 642 + 2154 + 264,5324,139 + 542 + 1981 + 542 + 1981 + 139,shapes/page1_006_other_6110mm.png
+1,#7,B3,240x600,B11 B16,U (opens right),U,3252.8,3273,414 + 2445 + 414,3175,392 + 2391 + 392,shapes/page1_007_U_3273mm.png
+1,#8,B3,240x600,B11 B16,U (opens left),U,3164.3,3187,414 + 2345 + 428,3079,387 + 2291 + 401,shapes/page1_008_U_3187mm.png
+1,#9,B1,350x1300,,straight (vertical),straight,32306,32306,32306,32306,32306,shapes/page1_009_straight_32306mm.png
+1,#10,B1,350x1300,,straight (vertical),straight,32306,32306,32306,32306,32306,shapes/page1_010_straight_32306mm.png
+1,#11,B1,350x1300,,straight (vertical),straight,32306,32306,32306,32306,32306,shapes/page1_011_straight_32306mm.png
+1,#12,B1,350x1300,,straight (vertical),straight,32306,32306,32306,32306,32306,shapes/page1_012_straight_32306mm.png
+1,#13,B1,350x1300,,straight (vertical),straight,32306,32306,32306,32306,32306,shapes/page1_013_straight_32306mm.png
+1,#14,B1,350x1300,,straight (vertical),straight,32306,32306,32306,32306,32306,shapes/page1_014_straight_32306mm.png
+1,#15,B8,240x600,B10 B4,L (legs down and right),L,2790,2801,2391 + 410,2751,2368 + 383,shapes/page1_015_L_2801mm.png
+1,#16,B8,240x600,B10 B4,L (legs down and right),L,2692.7,2715,2291 + 424,2614,2241 + 373,shapes/page1_016_L_2715mm.png
+1,#17,B8,240x600,B10 B4,L (legs left and down),L,2744.4,2755,414 + 2341,2705,387 + 2318,shapes/page1_017_L_2755mm.png
+1,#18,B25,240x600,,L (legs right and up),L,32664.1,32675,383 + 32292,32625,360 + 32265,shapes/page1_018_L_32675mm.png
+1,#19,B25,240x600,,L (legs left and up),L,32649.5,32661,419 + 32242,32607,392 + 32215,shapes/page1_019_L_32661mm.png
+1,#20,B8,240x600,B10 B4,L (legs right and up),L,1331,1353,301 + 1052,1252,250 + 1002,shapes/page1_020_L_1353mm.png
+1,#21,B10,240x450,B8,U (opens right),U,2936.6,2960,287 + 2386 + 287,2852,260 + 2332 + 260,shapes/page1_021_U_2960mm.png
+1,#22,B10,240x450,B8,U (opens left),U,2843,2864,282 + 2286 + 296,2764,260 + 2231 + 273,shapes/page1_022_U_2864mm.png
+1,#23,B21,240x600,B17,straight (vertical),straight,8338.4,8338,8338,8338,8338,shapes/page1_023_straight_8338mm.png
+1,#24,B21,240x600,B17,straight (vertical),straight,1502.8,1503,1503,1503,1503,shapes/page1_024_straight_1503mm.png
+1,#25,B21,240x600,B17,straight (vertical),straight,8338.4,8338,8338,8338,8338,shapes/page1_025_straight_8338mm.png
+1,#26,B29,300x1150,,Z / crank,Z,3573,3573,888 + 1797 + 888,3555,879 + 1797 + 879,shapes/page1_026_Z_3573mm.png
+1,#27,B29,300x1150,,Z / crank,Z,3577.6,3578,888 + 1797 + 893,3559,879 + 1797 + 883,shapes/page1_027_Z_3578mm.png
+1,#28,B29,300x1150,,Z / crank,Z,3573,3573,888 + 1797 + 888,3555,879 + 1797 + 879,shapes/page1_028_Z_3573mm.png
+1,#29,B29,300x1150,,Z / crank,Z,3577.6,3578,888 + 1797 + 893,3559,879 + 1797 + 883,shapes/page1_029_Z_3578mm.png
+1,#30,B29,300x1150,,straight (vertical),straight,3351.7,3352,3352,3352,3352,shapes/page1_030_straight_3352mm.png
+1,#31,B29,300x1150,,straight (vertical),straight,3351.7,3352,3352,3352,3352,shapes/page1_031_straight_3352mm.png
+1,#32,B29,300x1150,,straight (vertical),straight,3351.7,3352,3352,3352,3352,shapes/page1_032_straight_3352mm.png
+1,#33,B29,300x1150,,straight (vertical),straight,3351.7,3352,3352,3352,3352,shapes/page1_033_straight_3352mm.png
+1,#34,B29,300x1150,,straight (vertical),straight,1766.9,1767,1767,1767,1767,shapes/page1_034_straight_1767mm.png
+1,#35,B29,300x1150,,straight (vertical),straight,1766.9,1767,1767,1767,1767,shapes/page1_035_straight_1767mm.png
+1,#36,B17,240x600,B21,U (opens right),U,4336.7,4358,373 + 3616 + 369,4258,346 + 3570 + 342,shapes/page1_036_U_4358mm.png
+1,#37,B17,240x600,B21,U (opens left),U,4284,4304,410 + 3516 + 378,4212,387 + 3470 + 355,shapes/page1_037_U_4304mm.png
+1,#38,B21,240x600,B17,L (legs down and left),L,1907.5,1917,1589 + 328,1872,1567 + 305,shapes/page1_038_L_1917mm.png
+1,#39,B28,300x1300,B29 B22,U (opens right),U,8133.7,8156,428 + 7318 + 410,8052,401 + 7268 + 383,shapes/page1_039_U_8156mm.png
+1,#40,B28,300x1300,B29 B22,U (opens left),U,7985.4,8006,405 + 7218 + 383,7911,383 + 7168 + 360,shapes/page1_040_U_8006mm.png
+1,#41,B29,300x1150,,straight (horizontal),straight,1070.2,1070,1070,1070,1070,shapes/page1_041_straight_1070mm.png
+1,#42,B21,240x600,B17,other (6 segments),other,12263.3,12580,252 + 1144 + 4882 + 1079 + 4959 + 264,11787,135 + 979 + 4782 + 979 + 4777 + 135,shapes/page1_042_other_12580mm.png
+1,#43,B21,240x600,B17,other (6 segments),other,4618.8,4940,258 + 1148 + 1057 + 1079 + 1134 + 264,4144,139 + 979 + 956 + 979 + 956 + 135,shapes/page1_043_other_4940mm.png
+1,#44,B21,240x600,B17,other (6 segments),other,4612.1,4932,258 + 1152 + 1057 + 1079 + 1129 + 257,4137,135 + 979 + 956 + 979 + 956 + 132,shapes/page1_044_other_4932mm.png
+1,#45,B21,240x600,B17,other (6 segments),other,10954.2,11269,252 + 488 + 4882 + 424 + 4959 + 264,10480,135 + 323 + 4782 + 323 + 4782 + 135,shapes/page1_045_other_11269mm.png
+1,#46,B21,240x600,B17,straight (vertical),straight,1999.2,1999,1999,1999,1999,shapes/page1_046_straight_1999mm.png
+1,#47,B29,300x1150,,straight (horizontal),straight,1070.2,1070,1070,1070,1070,shapes/page1_047_straight_1070mm.png
+1,#48,B28,300x1300,B22,straight (vertical),straight,2199.6,2200,2200,2200,2200,shapes/page1_048_straight_2200mm.png
+1,#49,B28,300x1300,B22,Z / crank,Z,3657.1,3658,888 + 1877 + 893,3643,883 + 1877 + 883,shapes/page1_049_Z_3658mm.png
+1,#50,B28,300x1300,B22,Z / crank,Z,3657.1,3658,893 + 1877 + 888,3643,883 + 1877 + 883,shapes/page1_050_Z_3658mm.png
+1,#51,B28,300x1300,B22,Z / crank,Z,3657.1,3658,888 + 1877 + 893,3643,883 + 1877 + 883,shapes/page1_051_Z_3658mm.png
+1,#52,B28,300x1300,B22,Z / crank,Z,3657.1,3658,893 + 1877 + 888,3643,883 + 1877 + 883,shapes/page1_052_Z_3658mm.png
+1,#53,B28,300x1300,B22,straight (vertical),straight,3347.2,3347,3347,3347,3347,shapes/page1_053_straight_3347mm.png
+1,#54,B28,300x1300,B22,straight (vertical),straight,3347.2,3347,3347,3347,3347,shapes/page1_054_straight_3347mm.png
+1,#55,B28,300x1300,B22,straight (vertical),straight,3347.2,3347,3347,3347,3347,shapes/page1_055_straight_3347mm.png
+1,#56,B28,300x1300,B22,straight (vertical),straight,3347.2,3347,3347,3347,3347,shapes/page1_056_straight_3347mm.png
+1,#57,B15,300x600,,straight (vertical),straight,8338.4,8338,8338,8338,8338,shapes/page1_057_straight_8338mm.png
+1,#58,B21,240x600,,straight (vertical),straight,1502.8,1503,1503,1503,1503,shapes/page1_058_straight_1503mm.png
+1,#59,B21,240x600,,straight (vertical),straight,1502.8,1503,1503,1503,1503,shapes/page1_059_straight_1503mm.png
+1,#60,B15,300x600,,straight (vertical),straight,8338.4,8338,8338,8338,8338,shapes/page1_060_straight_8338mm.png
+1,#61,B28,300x1300,,straight (horizontal),straight,1220.5,1220,1220,1220,1220,shapes/page1_061_straight_1220mm.png
+1,#62,B28,300x1300,B22,straight (vertical),straight,1762.4,1762,1762,1762,1762,shapes/page1_062_straight_1762mm.png
+1,#63,B28,300x1300,B22,straight (vertical),straight,1762.4,1762,1762,1762,1762,shapes/page1_063_straight_1762mm.png
+1,#64,B21,240x600,,other (6 segments),other,10967,11288,258 + 497 + 4882 + 428 + 4959 + 264,10494,139 + 328 + 4782 + 328 + 4782 + 135,shapes/page1_064_other_11288mm.png
+1,#65,B21,240x600,,other (6 segments),other,12269.5,12585,258 + 1148 + 4882 + 1079 + 4954 + 264,11795,139 + 979 + 4782 + 979 + 4777 + 139,shapes/page1_065_other_12585mm.png
+1,#66,B21,240x600,,other (6 segments),other,4621.2,4935,258 + 1148 + 1057 + 1079 + 1129 + 264,4148,139 + 979 + 956 + 979 + 956 + 139,shapes/page1_066_other_4935mm.png
+1,#67,B21,240x600,,other (6 segments),other,4614.7,4929,258 + 1152 + 1057 + 1079 + 1125 + 258,4140,135 + 979 + 956 + 979 + 956 + 135,shapes/page1_067_other_4929mm.png
+1,#68,B21,240x600,,straight (vertical),straight,1498.3,1498,1498,1498,1498,shapes/page1_068_straight_1498mm.png
+1,#69,B21,240x600,,straight (vertical),straight,1498.3,1498,1498,1498,1498,shapes/page1_069_straight_1498mm.png
+1,#70,B28,300x1300,,straight (horizontal),straight,1220.5,1220,1220,1220,1220,shapes/page1_070_straight_1220mm.png
+1,#71,B1,350x1300,B1,straight (vertical),straight,19441,19441,19441,19441,19441,shapes/page1_071_straight_19441mm.png
+1,#72,B1,350x1300,B1,straight (vertical),straight,19441,19441,19441,19441,19441,shapes/page1_072_straight_19441mm.png
+1,#73,B1,350x1300,B1,straight (vertical),straight,19441,19441,19441,19441,19441,shapes/page1_073_straight_19441mm.png
+1,#74,B1,350x1300,B1,straight (vertical),straight,19441,19441,19441,19441,19441,shapes/page1_074_straight_19441mm.png
+1,#75,B1,350x1300,B1,straight (vertical),straight,19441,19441,19441,19441,19441,shapes/page1_075_straight_19441mm.png
+1,#76,B1,350x1300,B1,straight (vertical),straight,19441,19441,19441,19441,19441,shapes/page1_076_straight_19441mm.png
+1,#77,B20,240x600,B15,U (opens right),U,9105.7,9126,410 + 8297 + 419,9030,387 + 8247 + 396,shapes/page1_077_U_9126mm.png
+1,#78,B20,240x600,B15,U (opens left),U,9008.1,9031,424 + 8197 + 410,8926,396 + 8147 + 383,shapes/page1_078_U_9031mm.png
+1,#79,B27,240x600,,L (legs down and right),L,2026.2,2032,1731 + 301,2008,1717 + 291,shapes/page1_079_L_2032mm.png
+1,#80,B27,240x600,,U (opens left),U,3755.4,3767,310 + 3147 + 310,3716,296 + 3124 + 296,shapes/page1_080_U_3767mm.png
+1,#81,B24,300x600,B23 B25,L (legs down and right),L,19431.2,19441,19036 + 405,19396,19013 + 383,shapes/page1_081_L_19441mm.png
+1,#82,B24,300x600,B23 B25,L (legs down and left),L,19371,19382,18986 + 396,19332,18963 + 369,shapes/page1_082_L_19382mm.png
+1,#83,B27,240x600,,L (legs right and up),L,2026.2,2032,301 + 1731,2008,291 + 1717,shapes/page1_083_L_2032mm.png
+1,#84,B7,240x600,,U (opens right),U,4318.5,4340,410 + 3516 + 414,4240,387 + 3461 + 392,shapes/page1_084_U_4340mm.png
+1,#85,B7,240x600,B15,L (legs down and right),L,1296.2,1307,943 + 364,1257,915 + 342,shapes/page1_085_L_1307mm.png
+1,#86,B7,240x600,,U (opens left),U,4227.4,4249,410 + 3415 + 424,4149,387 + 3361 + 401,shapes/page1_086_U_4249mm.png
+1,#87,B7,240x600,,straight (vertical),straight,2272.4,2272,2272,2272,2272,shapes/page1_087_straight_2272mm.png
+1,#88,B27,240x600,,straight (vertical),straight,1498.3,1498,1498,1498,1498,shapes/page1_088_straight_1498mm.png
+1,#89,B27,240x600,,straight (vertical),straight,1498.3,1498,1498,1498,1498,shapes/page1_089_straight_1498mm.png
+1,#90,B20,240x600,,straight (vertical),straight,3538.5,3538,3538,3538,3538,shapes/page1_090_straight_3538mm.png
+1,#91,B24,300x600,,U (opens right),U,11039.2,11062,369 + 10297 + 396,10957,342 + 10246 + 369,shapes/page1_091_U_11062mm.png
+1,#92,B24,300x600,,straight (vertical),straight,2003.8,2004,2004,2004,2004,shapes/page1_092_straight_2004mm.png
+1,#93,B24,300x600,,U (opens left),U,10986.5,11007,410 + 10196 + 401,10911,387 + 10146 + 378,shapes/page1_093_U_11007mm.png
+1,#94,B24,300x600,,straight (vertical),straight,2928.2,2928,2928,2928,2928,shapes/page1_094_straight_2928mm.png
+1,#95,B19,240x600,B14,straight (vertical),straight,3921,3921,3921,3921,3921,shapes/page1_095_straight_3921mm.png
+1,#96,B14,240x600,B19 B20 B6,straight (vertical),straight,2787,2787,2787,2787,2787,shapes/page1_096_straight_2787mm.png
+1,#97,B19,240x600,B14,straight (vertical),straight,3921,3921,3921,3921,3921,shapes/page1_097_straight_3921mm.png
+1,#98,B6,240x600,B14,U (opens right),U,3522.5,3543,383 + 2828 + 332,3448,360 + 2778 + 310,shapes/page1_098_U_3543mm.png
+1,#99,B6,240x600,B14,U (opens left),U,3465.9,3489,433 + 2728 + 328,3384,405 + 2678 + 301,shapes/page1_099_U_3489mm.png
+1,#100,B19,240x600,B14,straight (vertical),straight,1534.7,1535,1535,1535,1535,shapes/page1_100_straight_1535mm.png
+1,#101,B19,240x600,,U (opens right),U,2113.3,2136,387 + 1321 + 428,2032,360 + 1271 + 401,shapes/page1_101_U_2136mm.png
+1,#102,B19,240x600,,U (opens left),U,1976.7,1999,387 + 1220 + 392,1894,360 + 1170 + 364,shapes/page1_102_U_1999mm.png
+1,#103,B24,300x600,B23 B25,straight (vertical),straight,4576.8,4577,4577,4577,4577,shapes/page1_103_straight_4577mm.png
+1,#104,B5,240x600,B13 B12 B1,U (opens right),U,8099.2,8120,401 + 7318 + 401,8024,378 + 7268 + 378,shapes/page1_104_U_8120mm.png
+1,#105,B5,240x600,B13 B12 B1,U (opens left),U,7994.5,8015,383 + 7218 + 414,7920,360 + 7168 + 392,shapes/page1_105_U_8015mm.png
+1,#106,B13,240x600,B18,U (opens right),U,5103.7,5123,351 + 4376 + 396,5032,328 + 4331 + 373,shapes/page1_106_U_5123mm.png
+1,#107,B13,240x600,,U (opens left),U,4978.8,5000,346 + 4276 + 378,4901,319 + 4231 + 351,shapes/page1_107_U_5000mm.png
+1,#108,B13,240x600,,U (opens left),U,4728.3,4750,328 + 4126 + 296,4650,301 + 4080 + 269,shapes/page1_108_U_4750mm.png
+1,#109,B25,240x600,B18 B25,U (opens right),U,8095.7,8116,401 + 7314 + 401,8024,378 + 7268 + 378,shapes/page1_109_U_8116mm.png
+1,#110,B25,240x600,B18 B25,U (opens left),U,7971.7,7992,373 + 7218 + 401,7897,351 + 7168 + 378,shapes/page1_110_U_7992mm.png
+1,#111,B24,300x600,,straight (vertical),straight,2003.8,2004,2004,2004,2004,shapes/page1_111_straight_2004mm.png
+1,#112,B5,240x600,B13 B1,straight (vertical),straight,3788.9,3789,3789,3789,3789,shapes/page1_112_straight_3789mm.png
+1,#113,B5,240x600,B13 B1,straight (vertical),straight,3547.6,3548,3548,3548,3548,shapes/page1_113_straight_3548mm.png
+1,#114,B18,240x600,B25,L (legs up and right),L,1479.4,1489,1198 + 291,1444,1175 + 269,shapes/page1_114_L_1489mm.png
+1,#115,B23,240x540,B25,U (opens right),U,4324,4344,282 + 3730 + 332,4250,260 + 3680 + 310,shapes/page1_115_U_4344mm.png
+1,#116,B23,240x540,B25,U (opens left),U,4301.2,4322,373 + 3630 + 319,4226,351 + 3579 + 296,shapes/page1_116_U_4322mm.png
+1,#117,B23,240x540,B25,L (legs up and right),L,2545,2554,2190 + 364,2510,2168 + 342,shapes/page1_117_L_2554mm.png
+1,#118,B12,240x600,B5,U (opens right),U,3002.3,3023,455 + 2131 + 437,2924,428 + 2086 + 410,shapes/page1_118_U_3023mm.png
+1,#119,B12,240x600,B5,U (opens left),U,2831.3,2851,410 + 2031 + 410,2760,387 + 1986 + 387,shapes/page1_119_U_2851mm.png
+1,#120,B25,240x600,B25,L (legs right and up),L,1373.7,1384,332 + 1052,1335,310 + 1025,shapes/page1_120_L_1384mm.png
+1,#121,B23,240x540,B25,L (legs left and up),L,1314.5,1325,328 + 997,1276,301 + 975,shapes/page1_121_L_1325mm.png
