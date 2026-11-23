@@ -157,7 +157,10 @@ export default function Home() {
                     }
                   >
                     Page {p.page} overlay
-                  </button>
+                  </button>{" "}
+                  <a href={`${API}${p.overlayUrl}`} download={`page${p.page}_overlay.png`} title="Download overlay image">
+                    (download)
+                  </a>
                 </span>
               ))}
             </div>
@@ -208,7 +211,10 @@ export default function Home() {
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <b>{current.title}</b>
-              <button className="close" onClick={() => setView(null)} aria-label="Close">×</button>
+              <span className="modal-actions">
+                <a href={current.src} download={`${current.title.replace(/[^\w.-]+/g, "_")}.png`}>Download</a>
+                <button className="close" onClick={() => setView(null)} aria-label="Close">×</button>
+              </span>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={current.src} alt={current.title} />

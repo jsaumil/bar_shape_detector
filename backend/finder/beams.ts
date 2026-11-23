@@ -22,7 +22,7 @@ export interface BeamTitle {
 type Side = "below" | "above" | "left" | "right"
 
 // A beam name: letters with a B among them (B, GB, NGB, BKT), a number, an optional letter
-const ONE = "[A-Z]{0,3}B[A-Z]{0,3}\\d{1,4}[A-Z]?"
+const ONE = "[A-Z]{0,3}B[A-Z]{0,3}\\d{1,4}[A-Za-z]?"
 const NAME = new RegExp(`^(${ONE})(?:\\s*[,&/]\\s*${ONE})*(?:-${ONE})?$`)
 const NAME_PART = new RegExp(ONE, "g")
 const SIZE = /^\(?(\d{2,4})\s*[xX]\s*(\d{2,4})\)?$/
@@ -35,6 +35,8 @@ const CALLOUT_HEIGHT = 0.8
 const ROW_TOLERANCE = 3
 // A bar running on into a neighbouring span is listed there when at least this share of it lies there
 const ALSO_SHARE = 0.25
+// ... or when it passes under that span's title and covers at least this share of the span
+const ALSO_SPAN_SHARE = 0.5
 // A title alone in its row covers a span this many title lengths each side of its centre
 const END_SPAN = 4
 // A title sits on the side opposite the usual one only when a shape there is nearer than
@@ -42,12 +44,23 @@ const END_SPAN = 4
 const OTHER_SIDE_SHARE = 0.5
 // A shape inside another's box, give or take this much (pt), is part of its detail
 const CLUSTER_GAP = 1.0
+// A title and a shape further apart than this many typical title-to-detail gaps are not partners
+const PARTNER_REACH = 3
 
 const cx = (r: Roi) => (r.x0 + r.x1) / 2
 const cy = (r: Roi) => (r.y0 + r.y1) / 2
 
 export function findBeamTitles(page: mupdf.Page): BeamTitle[] {
   const words = getWords(page).map((w) => ({ text: w.text.replace(/[_]/g, "").trim(), r: w.rect }))
+  // A size written with spaces comes as three words ("230" "x" "575"): join them into one
+  for (let i = 0; i + 2 < words.length; i++) {
+    const [a, x, b] = [words[i]!, words[i + 1]!, words[i + 2]!]
+    const h = a.r.y1 - a.r.y0
+    const sameLine = (p: typeof a, q: typeof a) => Math.abs(cy(p.r) - cy(q.r)) < 0.5 * h && q.r.x0 > p.r.x1 - 0.5 && q.r.x0 - p.r.x1 < 1.5 * h
+    if (/^\(?\d{2,4}$/.test(a.text) && /^[xX]$/.test(x.text) && /^\d{2,4}\)?$/.test(b.text) && sameLine(a, x) && sameLine(x, b)) {
+      words.splice(i, 3, { text: `${a.text}x${b.text}`, r: { x0: a.r.x0, y0: Math.min(a.r.y0, b.r.y0), x1: b.r.x1, y1: Math.max(a.r.y1, b.r.y1) } })
+    }
+  }
   const titles: (Omit<BeamTitle, "text_height"> & { sized: boolean; h: number })[] = []
   const used = new Set<number>()
   words.forEach((w, i) => {
@@ -146,14 +159,31 @@ function titleSides(titles: BeamTitle[], boxes: Box[]): Side[] {
     return d
   })
   const nearest = dist.map((d) => SIDES.reduce((a, b) => (d[b] < d[a] ? b : a)))
-  const usual = SIDES.reduce((a, b) => (nearest.filter((x) => x === b).length > nearest.filter((x) => x === a).length ? b : a))
+  const opposite: Record<Side, Side> = { below: "above", above: "below", left: "right", right: "left" }
+  let usual = SIDES.reduce((a, b) => (nearest.filter((x) => x === b).length > nearest.filter((x) => x === a).length ? b : a))
+  // Between rows of details a title can be nearer to the next row than to its own (a stirrup
+  // table under each elevation, then its title). The true side pairs every row up: on the
+  // wrong one the last row of titles has no details beyond it. Take the side that leaves
+  // fewer titles without a detail
+  let paired = Infinity // set when the rows pair up only on the side chosen here
+  const gaps = dist.map((d) => Math.min(d[usual], d[opposite[usual]])).filter(Number.isFinite).sort((a, b) => a - b)
+  if (gaps.length) {
+    const reach = PARTNER_REACH * Math.max(gaps[Math.floor(gaps.length / 2)]!, 1)
+    // Titles with no detail on that side (details with no readable title say nothing)
+    const orphans = (side: Side) => dist.filter((d) => !(d[side] <= reach)).length
+    if (orphans(opposite[usual]) < orphans(usual)) {
+      usual = opposite[usual]
+      paired = reach
+    }
+  }
   // A title between two rows of details is about as near to the row on the far side as to
   // its own: the opposite side must be clearly nearer. A side across (a section's title
   // below it on a sheet of titles beside their details) only needs to be nearer
-  const opposite: Record<Side, Side> = { below: "above", above: "below", left: "right", right: "left" }
   return nearest.map((side, i) => {
     if (side === usual) return side
     const share = side === opposite[usual] ? OTHER_SIDE_SHARE : 1
+    // Rows paired up that way: a title has its own detail on that side, if any is within reach
+    if (side === opposite[usual] && dist[i]![usual] <= paired) return usual
     return dist[i]![side] < share * dist[i]![usual] ? side : usual
   })
 }
@@ -217,7 +247,11 @@ export function assignBeams(shapes: Shape[], titles: BeamTitle[]): BeamAssignmen
       tb.forEach((t, i) => {
         if (t === own || !sameRow(t, own)) return
         const [lo, hi] = spans[i]!
-        if (Math.min(s.u1, hi) - Math.max(s.u0, lo) >= ALSO_SHARE * len) also.push(t.t)
+        const overlap = Math.min(s.u1, hi) - Math.max(s.u0, lo)
+        // A long bar through a row of short spans has a small share in each, yet covers them,
+        // passing right under their titles
+        const through = overlap >= ALSO_SPAN_SHARE * (hi - lo) && s.u0 <= t.u0 && s.u1 >= t.u1
+        if (overlap >= ALSO_SHARE * len || through) also.push(t.t)
       })
     }
     return [own.t, also]

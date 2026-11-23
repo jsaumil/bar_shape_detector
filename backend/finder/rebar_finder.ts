@@ -75,6 +75,8 @@ const MIN_SCALE_DIMENSIONS = 5
 const LINE_JOIN_GAP = 0.6
 // A line whose direction has an x part up to this (sin of ~3 deg) reads as vertical text
 const NEAR_VERTICAL = 0.05
+// A scale group whose dimensions run this share one way (all depths, or all along the beams)
+const ONE_WAY_SHARE = 0.9
 
 // Text strokes are paths no bigger than this (pt)
 const MAX_GLYPH_SIZE = 15.0
@@ -510,12 +512,14 @@ function textWords(page: mupdf.Page): [number, Pt, number][] {
 // ends, and read rotated text both ways
 async function readDimensions(
   page: mupdf.Page, drawings: Drawing[], barPaths: Drawing[], dimLayers: string[], strokedTicks = false,
+  ticksAnyLayer = false,
 ): Promise<Dimension[]> {
   const barSet = new Set(barPaths)
   const other = drawings.filter((p) => !barSet.has(p))
   const linePaths = dimLayers.length ? other.filter((p) => dimLayers.includes(p.layer)) : other
-  // The second try also takes larger arrowheads (up to a tick's length)
-  const ticks = strokedTicks ? tickSegments(linePaths) : []
+  // The second try also takes larger arrowheads (up to a tick's length). The third takes
+  // ticks from any layer: some plots put the tick blocks on layer 0, not the dimension layer
+  const ticks = strokedTicks ? tickSegments(ticksAnyLayer ? other : linePaths) : []
   const markers = markerPoints(other, strokedTicks ? MAX_TICK_LENGTH : MAX_MARKER_SIZE)
   const dims = dimensionIntervals(candidateLines(linePaths), markers, ticks)
 
@@ -603,7 +607,7 @@ function consensusScale(dims: Dimension[]): number {
 
 // Scale groups with the main one merged from its rounding-split parts, or [] when
 // too few dimensions back the main scale to trust it
-function trustedGroups(dims: Dimension[]): ScaleGroup[] {
+function trustedGroups(dims: Dimension[], barsVertical = false): ScaleGroup[] {
   let groups = scaleGroups(dims)
   if (!groups.length) return []
   // The main scale is the one that covers the most of the drawing: the largest total
@@ -611,6 +615,26 @@ function trustedGroups(dims: Dimension[]): ScaleGroup[] {
   // many dimensions as the long elevations they belong to
   const extent = (g: ScaleGroup) => dims.filter((d) => d.group_scale === g.scale).reduce((sum, d) => sum + d.length_pt, 0)
   groups.sort((a, b) => extent(b) - extent(a))
+  // Elevations drawn N times deep carry depth dimensions overridden to the real depth ("600"
+  // on 1200 drawn): a group of dimensions all across the bars at 1/N of a group all along
+  // them. Lengths along the beam are drawn true, so the along group is the drawing scale
+  // (as the CAD program measures the bars); the depth labels are no scale at all
+  const share = (g: ScaleGroup, along: boolean) => {
+    const own = dims.filter((d) => d.group_scale === g.scale)
+    const vertical = own.filter((d) => Math.abs(d.p1[0] - d.p2[0]) <= NEAR_VERTICAL * d.length_pt).length
+    const horizontal = own.filter((d) => Math.abs(d.p1[1] - d.p2[1]) <= NEAR_VERTICAL * d.length_pt).length
+    return (along === barsVertical ? vertical : horizontal) / Math.max(own.length, 1)
+  }
+  const depths = groups[0]!
+  if (share(depths, false) >= ONE_WAY_SHARE) {
+    const along = groups.find((g) => g !== depths && share(g, true) >= ONE_WAY_SHARE
+      && dims.filter((d) => d.group_scale === g.scale).length >= MIN_SCALE_DIMENSIONS
+      && [2, 3, 4].some((n) => Math.abs(g.scale / (n * depths.scale) - 1) <= 0.01))
+    if (along) {
+      for (const d of dims) if (d.group_scale === depths.scale) d.group_scale = null
+      groups = [along, ...groups.filter((g) => g !== depths && g !== along)]
+    }
+  }
   // Groups only slightly off the main one are the same scale: merge them
   const main = groups[0]!.scale
   const merged = new Set(groups.filter((g) => Math.abs(g.scale / main - 1) <= SAME_SCALE).map((g) => g.scale))
@@ -647,6 +671,32 @@ function scaleFromLabel(page: mupdf.Page): [number | null, number | null] {
   if (!found.length) return [null, null]
   const n = Number(mostCommon(found)[0]![0])
   return [(25.4 / 72) * n, n]
+}
+
+// AutoCAD writes its plot scale into the page as a viewport measure dictionary:
+// /VP [<< /BBox [..] /Measure << /X [<< /C k >>] >> >>], k = drawing units per pt. Units are taken
+// as mm (as everywhere here). Viewports below 1 unit per pt are the paper sheet itself (0.35 mm
+// per pt); of the rest, the one holding the most bar points wins (smallest on a tie)
+function scaleFromViewport(page: mupdf.Page, shapes: Shape[]): [number, number] | null {
+  const pdfPage = page as mupdf.PDFPage
+  if (typeof pdfPage.getObject !== "function") return null
+  const vps = pdfPage.getObject().get("VP").resolve()
+  if (!vps.isArray()) return null
+  const m = pdfPage.getTransform()
+  const map = (x: number, y: number): Pt => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+  const found: { k: number, inside: number, area: number }[] = []
+  for (let i = 0; i < vps.length; i++) {
+    const vp = vps.get(i).resolve()
+    const c = vp.get("Measure").resolve().get("X").resolve().get(0).resolve().get("C")
+    const box = vp.get("BBox").resolve()
+    if (!c.isNumber() || !box.isArray() || box.length !== 4 || c.asNumber() <= 1) continue
+    const [a, b] = [map(box.get(0).asNumber(), box.get(1).asNumber()), map(box.get(2).asNumber(), box.get(3).asNumber())]
+    const [x0, x1, y0, y1] = [Math.min(a[0], b[0]) - 2, Math.max(a[0], b[0]) + 2, Math.min(a[1], b[1]) - 2, Math.max(a[1], b[1]) + 2]
+    const inside = shapes.flatMap((s) => s.points).filter(([x, y]) => x >= x0 && x <= x1 && y >= y0 && y <= y1).length
+    found.push({ k: c.asNumber(), inside, area: (x1 - x0) * (y1 - y0) })
+  }
+  found.sort((p, q) => q.inside - p.inside || p.area - q.area)
+  return found.length ? [found[0]!.k, found.length] : null
 }
 
 // ---------------------------------------------------------------- output
@@ -706,18 +756,40 @@ async function processPage(page: mupdf.Page, pageNo: number, args: Args, roi: Ro
     // First filled arrowheads/ticks only; if that gives no trusted scale, also stroked
     // ticks (slashes, extension stubs) with rotated text read both ways
     let how = ""
+    // Which way the bars mostly run (along the beams): total length of their straight runs
+    let [runX, runY] = [0, 0]
+    for (const s of shapes) {
+      for (let i = 1; i < s.points.length; i++) {
+        runX += Math.abs(s.points[i]![0] - s.points[i - 1]![0])
+        runY += Math.abs(s.points[i]![1] - s.points[i - 1]![1])
+      }
+    }
+    const barsVertical = runY > runX
     dims = await readDimensions(page, drawings, barPaths, dimLayers)
-    groups = trustedGroups(dims)
+    groups = trustedGroups(dims, barsVertical)
     if (!groups.length) {
       dims = await readDimensions(page, drawings, barPaths, dimLayers, true)
-      groups = trustedGroups(dims)
+      groups = trustedGroups(dims, barsVertical)
       how = ", second try: stroked ticks / large arrows"
+    }
+    if (!groups.length && dimLayers.length) {
+      dims = await readDimensions(page, drawings, barPaths, dimLayers, true, true)
+      groups = trustedGroups(dims, barsVertical)
+      how = ", third try: stroked ticks on any layer"
     }
     if (groups.length) {
       mainScale = groups[0]!.scale
       scaleNote = `from ${groups[0]!.count} dimensions${how}`
       console.log(`  scale: ${mainScale.toFixed(3)} mm per pt = 1:${(mainScale / (25.4 / 72)).toFixed(1)} on paper; `
         + `${groups[0]!.count} dimensions agree, e.g. ${scaleExamples(dims, mainScale)}`)
+    } else if (scaleFromViewport(page, shapes)) {
+      // No dimensions agree (e.g. a schematic sheet whose callouts are not to scale): the
+      // plotter's own scale gives lengths as drawn in the CAD file
+      const [k, n] = scaleFromViewport(page, shapes)!
+      mainScale = k
+      scaleNote = `from the PDF's plot scale (AutoCAD viewport${n > 1 ? ` 1 of ${n}` : ""}; no dimensions agree)`
+      console.log(`  scale: ${k.toFixed(3)} mm per pt = 1:${(k / (25.4 / 72)).toFixed(1)} on paper, `
+        + "from the plot scale stored in the PDF; lengths as drawn in the CAD file")
     } else {
       const [scale, n] = scaleFromLabel(page)
       mainScale = scale
